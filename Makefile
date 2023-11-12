@@ -19,7 +19,7 @@ deploy:
 	# cp -r ./webapp/sql /home/isucon/webapp/sql
 	sudo systemctl start $(SERVICE_NAME).go.service
 	# mysql
-	sudo cp ./middleware/$(SERVER_ID)/my.cnf /etc/mysql/mysql.conf.d/mysqld.cnf
+	sudo cp ./middleware/$(SERVER_ID)/50-server.cnf /etc/mysql/mariadb.conf.d/50-server.cnf
 	sudo systemctl restart mysql.service
 
 bench-prepare:
