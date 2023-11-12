@@ -1092,8 +1092,8 @@ func getTrend(c echo.Context) error {
 	query := `
 		SELECT isu.id AS isu_id, isu.character, isu_condition.condition, isu_condition.timestamp
 		FROM isu
-		LEFT JOIN isu_condition ON isu.jia_isu_uuid = (
-			SELECT ic.jia_isu_uuid
+		LEFT JOIN isu_condition ON isu_condition.id = (
+			SELECT ic.id
 			FROM isu_condition AS ic
 			WHERE ic.jia_isu_uuid = isu.jia_isu_uuid
 			ORDER BY timestamp DESC
