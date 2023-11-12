@@ -15,6 +15,7 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/dgrijalva/jwt-go"
@@ -252,6 +253,26 @@ func main() {
 	}
 	db.SetMaxOpenConns(10)
 	defer db.Close()
+
+	for {
+		err := db.Ping()
+		if err == nil {
+			break
+		}
+		e.Logger.Info(err)
+		time.Sleep(time.Second * 1)
+	}
+
+	isuConditionCreateQueue = NewIsuConditionCreateQueue()
+	go func() {
+		for {
+			time.Sleep(500 * time.Millisecond)
+			items := isuConditionCreateDeueue()
+			if err := ExecuteIsuConditionCreate(items); err != nil {
+				e.Logger.Debug(err)
+			}
+		}
+	}()
 
 	postIsuConditionTargetBaseURL = os.Getenv("POST_ISUCONDITION_TARGET_BASE_URL")
 	if postIsuConditionTargetBaseURL == "" {
@@ -1194,39 +1215,8 @@ func postIsuCondition(c echo.Context) error {
 		return c.String(http.StatusBadRequest, "bad request body")
 	}
 
-	type InsertValue struct {
-		JiaIsuUUID string    `db:"jia_isu_uuid"`
-		Timestamp  time.Time `db:"timestamp"`
-		IsSitting  bool      `db:"is_sitting"`
-		Condition  string    `db:"condition"`
-		Message    string    `db:"message"`
-	}
-	values := make([]InsertValue, 0, len(req))
-	for _, cond := range req {
-		timestamp := time.Unix(cond.Timestamp, 0)
-
-		if !isValidConditionFormat(cond.Condition) {
-			return c.String(http.StatusBadRequest, "bad request body")
-		}
-
-		values = append(values, InsertValue{
-			JiaIsuUUID: jiaIsuUUID,
-			Timestamp:  timestamp,
-			IsSitting:  cond.IsSitting,
-			Condition:  cond.Condition,
-			Message:    cond.Message,
-		})
-	}
-
-	tx, err := db.Beginx()
-	if err != nil {
-		c.Logger().Errorf("db error: %v", err)
-		return c.NoContent(http.StatusInternalServerError)
-	}
-	defer tx.Rollback()
-
 	var count int
-	err = tx.Get(&count, "SELECT COUNT(*) FROM `isu` WHERE `jia_isu_uuid` = ?", jiaIsuUUID)
+	err = db.Get(&count, "SELECT COUNT(*) FROM `isu` WHERE `jia_isu_uuid` = ?", jiaIsuUUID)
 	if err != nil {
 		c.Logger().Errorf("db error: %v", err)
 		return c.NoContent(http.StatusInternalServerError)
@@ -1235,20 +1225,87 @@ func postIsuCondition(c echo.Context) error {
 		return c.String(http.StatusNotFound, "not found: isu")
 	}
 
-	query := "INSERT INTO isu_condition (`jia_isu_uuid`, `timestamp`, `is_sitting`, `condition`, `message`) VALUES (:jia_isu_uuid, :timestamp, :is_sitting, :condition, :message)"
-	_, err = tx.NamedExec(query, values)
+	values := make([]*IsuConditionCreate, 0, len(req))
+	for _, cond := range req {
+		timestamp := time.Unix(cond.Timestamp, 0)
+
+		if !isValidConditionFormat(cond.Condition) {
+			return c.String(http.StatusBadRequest, "bad request body")
+		}
+
+		values = append(values, &IsuConditionCreate{
+			JiaIsuUUID: jiaIsuUUID,
+			Timestamp:  timestamp,
+			IsSitting:  cond.IsSitting,
+			Condition:  cond.Condition,
+			Message:    cond.Message,
+		})
+	}
+
+	isuConditionCreateEnqueue(values)
+
+	return c.NoContent(http.StatusAccepted)
+}
+
+type IsuConditionCreate struct {
+	JiaIsuUUID string    `db:"jia_isu_uuid"`
+	Timestamp  time.Time `db:"timestamp"`
+	IsSitting  bool      `db:"is_sitting"`
+	Condition  string    `db:"condition"`
+	Message    string    `db:"message"`
+}
+
+type IsuConditionCreateQueue struct {
+	mu   sync.Mutex
+	data []*IsuConditionCreate
+}
+
+func NewIsuConditionCreateQueue() *IsuConditionCreateQueue {
+	return &IsuConditionCreateQueue{
+		mu:   sync.Mutex{},
+		data: make([]*IsuConditionCreate, 0, 10000),
+	}
+}
+
+var isuConditionCreateQueue *IsuConditionCreateQueue
+
+func isuConditionCreateEnqueue(items []*IsuConditionCreate) {
+	isuConditionCreateQueue.mu.Lock()
+	defer isuConditionCreateQueue.mu.Unlock()
+	isuConditionCreateQueue.data = append(isuConditionCreateQueue.data, items...)
+}
+
+func isuConditionCreateDeueue() []*IsuConditionCreate {
+	isuConditionCreateQueue.mu.Lock()
+	defer isuConditionCreateQueue.mu.Unlock()
+	items := isuConditionCreateQueue.data
+	isuConditionCreateQueue.data = make([]*IsuConditionCreate, 0, 10000)
+	return items
+}
+
+func ExecuteIsuConditionCreate(items []*IsuConditionCreate) error {
+	if len(items) == 0 {
+		return nil
+	}
+
+	tx, err := db.Beginx()
 	if err != nil {
-		c.Logger().Errorf("db error: %v", err)
-		return c.NoContent(http.StatusInternalServerError)
+		return fmt.Errorf("db error: %v", err)
+	}
+	defer tx.Rollback()
+
+	query := "INSERT INTO isu_condition (`jia_isu_uuid`, `timestamp`, `is_sitting`, `condition`, `message`) VALUES (:jia_isu_uuid, :timestamp, :is_sitting, :condition, :message)"
+	_, err = tx.NamedExec(query, items)
+	if err != nil {
+		return fmt.Errorf("db error: %v", err)
 	}
 
 	err = tx.Commit()
 	if err != nil {
-		c.Logger().Errorf("db error: %v", err)
-		return c.NoContent(http.StatusInternalServerError)
+		return fmt.Errorf("db error: %v", err)
 	}
 
-	return c.NoContent(http.StatusAccepted)
+	return nil
 }
 
 // ISUのコンディションの文字列がcsv形式になっているか検証
