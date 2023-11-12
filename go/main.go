@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"math/rand"
+	_ "net/http/pprof"
 	"net/http"
 	"os"
 	"os/exec"
@@ -207,6 +208,12 @@ func init() {
 }
 
 func main() {
+	if getEnv("PPROF", "0") == "1" {
+		go func() {
+			fmt.Println(http.ListenAndServe(":6060", nil))
+		}()
+	}
+
 	e := echo.New()
 	e.Debug = true
 	e.Logger.SetLevel(log.DEBUG)
