@@ -32,7 +32,7 @@ bench-result:
 	mkdir -p alp/dump
 	sudo cat /var/log/nginx/access.log \
 	| alp ltsv \
-	-m '*' \
+	-m '^/initialize$$,^/api/auth$$,^/api/signout$$,^/api/user/me$$,^/api/isu$$,^/api/isu/[0-9a-zA-Z\-]+$$,^/api/isu/[0-9a-zA-Z\-]+/icon$$,^/api/isu/[0-9a-zA-Z\-]+/graph$$,^/api/condition/[0-9a-zA-Z\-]+$$,^/api/trend$$,^/$$,^/isu/[0-9a-zA-Z\-]+$$,^/isu/[0-9a-zA-Z\-]+/condition$$,^/isu/[0-9a-zA-Z\-]+/graph$$,^/register$$,^/assets' \
 		--sort avg -r --dump alp/dump/`git show --format='%h' --no-patch` > /dev/null
 
 latest-alp:
