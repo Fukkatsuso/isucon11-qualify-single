@@ -58,3 +58,9 @@ disable-pprof:
 
 start-pprof: enable-pprof deploy
 	go tool pprof -http=0.0.0.0:1080 http://localhost:6060/debug/pprof/profile?seconds=80
+
+# bench実行中にデータを取りたいやつ
+profiling:
+	top -b -d 5 -n 15 > /tmp/top/`git show --format='%h' --no-patch` & \
+	go tool pprof -http=0.0.0.0:1080 -no_browser http://localhost:6060/debug/pprof/profile?seconds=80 & \
+	wait
