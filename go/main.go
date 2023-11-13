@@ -267,6 +267,19 @@ func main() {
 		}
 	}()
 
+	trendCache = NewTrendCache()
+	go func() {
+		for {
+			time.Sleep(500 * time.Millisecond)
+			data, err := GetTrendByte()
+			if err != nil {
+				e.Logger.Debug(err)
+			} else {
+				SetTrendCache(data)
+			}
+		}
+	}()
+
 	postIsuConditionTargetBaseURL = os.Getenv("POST_ISUCONDITION_TARGET_BASE_URL")
 	if postIsuConditionTargetBaseURL == "" {
 		e.Logger.Fatalf("missing: POST_ISUCONDITION_TARGET_BASE_URL")
@@ -1075,28 +1088,30 @@ func getIsuConditionsFromDB(db *sqlx.DB, jiaIsuUUID string, endTime time.Time, c
 	return conditionsResponse, nil
 }
 
-// ISUのコンディションの文字列からコンディションレベルを計算
-func calculateConditionLevel(condition string) (string, error) {
-	var conditionLevel string
-
-	warnCount := strings.Count(condition, "=true")
-	switch warnCount {
-	case 0:
-		conditionLevel = conditionLevelInfo
-	case 1, 2:
-		conditionLevel = conditionLevelWarning
-	case 3:
-		conditionLevel = conditionLevelCritical
-	default:
-		return "", fmt.Errorf("unexpected warn count")
-	}
-
-	return conditionLevel, nil
+type TrendCache struct {
+	mu   sync.RWMutex
+	data []byte
 }
 
-// GET /api/trend
-// ISUの性格毎の最新のコンディション情報
-func getTrend(c echo.Context) error {
+func NewTrendCache() *TrendCache {
+	return &TrendCache{}
+}
+
+var trendCache *TrendCache
+
+func GetTrendCache() []byte {
+	trendCache.mu.RLock()
+	defer trendCache.mu.RUnlock()
+	return trendCache.data
+}
+
+func SetTrendCache(data []byte) {
+	trendCache.mu.Lock()
+	defer trendCache.mu.Unlock()
+	trendCache.data = data
+}
+
+func GetTrendByte() ([]byte, error) {
 	queryRes := []struct {
 		IsuID     int64      `db:"isu_id"`
 		Character string     `db:"character"`
@@ -1117,8 +1132,7 @@ func getTrend(c echo.Context) error {
 	`
 	err := db.Select(&queryRes, query)
 	if err != nil {
-		c.Logger().Errorf("db error: %v", err)
-		return c.NoContent(http.StatusInternalServerError)
+		return nil, fmt.Errorf("db error: %v", err)
 	}
 
 	respByCharacter := map[string]TrendResponse{}
@@ -1128,8 +1142,7 @@ func getTrend(c echo.Context) error {
 		}
 		conditionLevel, err := calculateConditionLevel(*res.Condition)
 		if err != nil {
-			c.Logger().Error(err)
-			return c.NoContent(http.StatusInternalServerError)
+			return nil, fmt.Errorf("db error: %v", err)
 		}
 		trendCondition := TrendCondition{
 			ID:        int(res.IsuID),
@@ -1159,8 +1172,7 @@ func getTrend(c echo.Context) error {
 	characterList := []Isu{}
 	err = db.Select(&characterList, "SELECT `character` FROM `isu` GROUP BY `character`")
 	if err != nil {
-		c.Logger().Errorf("db error: %v", err)
-		return c.NoContent(http.StatusInternalServerError)
+		return nil, fmt.Errorf("db error: %v", err)
 	}
 	res := []TrendResponse{}
 	for _, character := range characterList {
@@ -1182,7 +1194,36 @@ func getTrend(c echo.Context) error {
 			})
 	}
 
-	return c.JSON(http.StatusOK, res)
+	return json.Marshal(res)
+}
+
+// ISUのコンディションの文字列からコンディションレベルを計算
+func calculateConditionLevel(condition string) (string, error) {
+	var conditionLevel string
+
+	warnCount := strings.Count(condition, "=true")
+	switch warnCount {
+	case 0:
+		conditionLevel = conditionLevelInfo
+	case 1, 2:
+		conditionLevel = conditionLevelWarning
+	case 3:
+		conditionLevel = conditionLevelCritical
+	default:
+		return "", fmt.Errorf("unexpected warn count")
+	}
+
+	return conditionLevel, nil
+}
+
+// GET /api/trend
+// ISUの性格毎の最新のコンディション情報
+func getTrend(c echo.Context) error {
+	data := GetTrendCache()
+	if data == nil {
+		return c.NoContent(http.StatusInternalServerError)
+	}
+	return c.JSONBlob(http.StatusOK, data)
 }
 
 // POST /api/condition/:jia_isu_uuid
