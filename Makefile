@@ -30,9 +30,9 @@ bench-prepare:
 
 bench-result:
 	mkdir -p alp/dump
-	sudo cat /var/log/nginx/access.log \
-	| alp ltsv \
-	-m '^/initialize$$,^/api/auth$$,^/api/signout$$,^/api/user/me$$,^/api/isu$$,^/api/isu/[0-9a-zA-Z\-]+$$,^/api/isu/[0-9a-zA-Z\-]+/icon$$,^/api/isu/[0-9a-zA-Z\-]+/graph$$,^/api/condition/[0-9a-zA-Z\-]+$$,^/api/trend$$,^/' \
+	sudo cat /var/log/nginx/access.log | \
+	alp ltsv \
+		-m '^/initialize$$,^/api/auth$$,^/api/signout$$,^/api/user/me$$,^/api/isu$$,^/api/isu/[0-9a-zA-Z\-]+$$,^/api/isu/[0-9a-zA-Z\-]+/icon$$,^/api/isu/[0-9a-zA-Z\-]+/graph$$,^/api/condition/[0-9a-zA-Z\-]+$$,^/api/trend$$,^/' \
 		--sort avg -r --dump alp/dump/`git show --format='%h' --no-patch` > /dev/null
 
 latest-alp:
@@ -47,7 +47,7 @@ show-pt-query-digest:
 	sudo pt-query-digest /var/log/mysql/mysql-slow.log
 
 show-applog:
-	sudo journalctl -u $(SERVICE_NAME).go.service
+	sudo journalctl -e -u $(SERVICE_NAME).go.service
 
 enable-pprof:
 	sed -i -e 's/PPROF=0/PPROF=1/' $(SERVER_ENV_FILE)
@@ -56,11 +56,22 @@ disable-pprof:
 	sed -i -e 's/PPROF=1/PPROF=0/' $(SERVER_ENV_FILE)
 	echo "*** make deploy で反映してね ***"
 
-start-pprof: enable-pprof deploy
-	go tool pprof -http=0.0.0.0:1080 http://localhost:6060/debug/pprof/profile?seconds=80
+start-pprof:
+	mkdir -p pprof
+	go tool pprof -proto -output pprof/`git show --format='%h' --no-patch`.pb.gz \
+		http://localhost:6060/debug/pprof/profile?seconds=80
 
-# bench実行中にデータを取りたいやつ
-profiling:
-	top -b -d 5 -n 15 > /tmp/top/`git show --format='%h' --no-patch` & \
-	go tool pprof -http=0.0.0.0:1080 -no_browser http://localhost:6060/debug/pprof/profile?seconds=80 & \
-	wait
+latest-pprof:
+	go tool pprof -http 0.0.0.0:1080 pprof/`git show --format='%h' --no-patch`.pb.gz
+
+start-top:
+	mkdir -p top
+	# バッチモードの結果を毎回上から20行出力する。それをインターバル5秒で17回繰り返す
+	LINES=20 top -b -d 5 -n 17 -w > top/`git show --format='%h' --no-patch`
+
+latest-top:
+	vim top/`git show --format='%h' --no-patch`
+
+# topとpprofの両方を取る
+start-topprof:
+	make -j 2 start-top start-pprof
