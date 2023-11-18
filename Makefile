@@ -60,14 +60,17 @@ start-pprof:
 	mkdir -p pprof
 	go tool pprof -proto -output pprof/`git show --format='%h' --no-patch`.pb.gz \
 		http://localhost:6060/debug/pprof/profile?seconds=80
+	make latest-pprof
 
+# 結果表示用のサーバを立ち上げる
 latest-pprof:
 	go tool pprof -http 0.0.0.0:1080 pprof/`git show --format='%h' --no-patch`.pb.gz
 
+# topコマンド(バッチモード)をインターバル5秒で17回繰り返す。毎回の結果は上から20行だけ保存する。
 start-top:
 	mkdir -p top
-	# バッチモードの結果を毎回上から20行出力する。それをインターバル5秒で17回繰り返す
 	LINES=20 top -b -d 5 -n 17 -w > top/`git show --format='%h' --no-patch`
+	echo "topの計測完了。結果を見るには：make latest-top"
 
 latest-top:
 	vim top/`git show --format='%h' --no-patch`
