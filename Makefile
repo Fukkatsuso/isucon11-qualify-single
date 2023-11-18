@@ -47,7 +47,7 @@ show-pt-query-digest:
 	sudo pt-query-digest /var/log/mysql/mysql-slow.log
 
 show-applog:
-	sudo journalctl -u $(SERVICE_NAME).go.service
+	sudo journalctl -e -u $(SERVICE_NAME).go.service
 
 enable-pprof:
 	sed -i -e 's/PPROF=0/PPROF=1/' $(SERVER_ENV_FILE)
