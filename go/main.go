@@ -364,8 +364,8 @@ func postInitialize(c echo.Context) error {
 		level, _ := calculateConditionLevel(conditions[i].Condition)
 		conditions[i].ConditionLevel = level
 	}
-	query := "INSERT INTO isu_condition (`jia_isu_uuid`, `timestamp`, `is_sitting`, `condition`, `message`, `condition_level`)" +
-		"	VALUES (:jia_isu_uuid, :timestamp, :is_sitting, :condition, :message, :condition_level)" +
+	query := "INSERT INTO isu_condition (`id`, `jia_isu_uuid`, `timestamp`, `is_sitting`, `condition`, `message`, `condition_level`)" +
+		"	VALUES (:id, :jia_isu_uuid, :timestamp, :is_sitting, :condition, :message, :condition_level)" +
 		"	ON DUPLICATE KEY UPDATE `condition_level` = VALUES(`condition_level`)"
 	_, err = db.NamedExec(query, conditions)
 	if err != nil {
